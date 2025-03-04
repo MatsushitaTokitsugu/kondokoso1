@@ -1,1 +1,0 @@
-# kondokoso1
