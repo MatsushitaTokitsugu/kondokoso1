@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>上郡 Geology Tracker (GitHub Edition)</title>
+  <style>
+    html, body { height: 100%; margin: 0; padding: 0; }
+    #map { height: 100%; width: 100%; }
+    #info { 
+      position: absolute; top: 10px; left: 10px; 
+      background: rgba(255, 255, 255, 0.9); padding: 15px; 
+      border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.5); 
+      font-family: Arial, sans-serif; max-width: 320px; 
+      font-size: 14px; z-index: 10; 
+    }
+    #legend { 
+      position: absolute; bottom: 10px; right: 10px; 
+      background: white; padding: 10px; border-radius: 8px; 
+      box-shadow: 0 0 10px rgba(0,0,0,0.5); max-height: 50%; 
+      overflow-y: auto; font-size: 12px; 
+    }
+    .legend-item { display: flex; align-items: center; margin: 5px 0; }
+    .legend-color { width: 20px; height: 20px; margin-right: 8px; }
+    button { 
+      position: absolute; top: 10px; right: 10px; padding: 10px; 
+      background: #0078d4; color: white; border: none; 
+      border-radius: 5px; cursor: pointer; z-index: 20; 
+    }
+    button:hover { background: #005a9e; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="info">位置情報を取得中...</div>
+  <div id="legend"></div>
+  <button onclick="refreshLocation()">位置更新</button>
+  <script>
+    // 上郡の地質データ（フルデータの一部を簡略化）
+    const geologyData = {
+      "type": "FeatureCollection",
+      "features": [
+        {
+          "type": "Feature",
+          "properties": { 
+            "name": "沖積層 (Alluvium)", 
+            "color": "rgba(0, 255, 0, 0.5)", 
+            "desc": "第四紀の河川堆積物。砂、粘土、礫主体。",
+            "era": "第四紀 (Quaternary)"
+          },
+          "geometry": {
+            "type": "Polygon",
+            "coordinates": [[
+              [134.3400, 34.8600], [134.3800, 34.8600],
+              [134.3800, 34.8900], [134.3400, 34.8900],
+              [134.3400, 34.8600]
+            ]]
+          }
+        },
+        {
+          "type": "Feature",
+          "properties": { 
+            "name": "第三紀堆積岩 (Tertiary Sedimentary)", 
+            "color": "rgba(255, 255, 0, 0.5)", 
+            "desc": "中新世の砂岩・泥岩。化石を含む。",
+            "era": "第三紀 (Tertiary)"
+          },
+          "geometry": {
+            "type": "Polygon",
+            "coordinates": [[
+              [134.3800, 34.8700], [134.4200, 34.8700],
+              [134.4200, 34.9100], [134.3800, 34.9100],
+              [134.3800, 34.8700]
+            ]]
+          }
+        },
+        {
+          "type": "Feature",
+          "properties": { 
+            "name": "変成岩 (Metamorphic Rock)", 
+            "color": "rgba(255, 0, 0, 0.5)", 
+            "desc": "古生代の基盤岩。片麻岩や結晶質石灰岩。",
+            "era": "古生代 (Paleozoic)"
+          },
+          "geometry": {
+            "type": "Polygon",
+            "coordinates": [[
+              [134.3200, 34.8200], [134.3600, 34.8200],
+              [134.3600, 34.8600], [134.3200, 34.8600],
+              [134.3200, 34.8200]
+            ]]
+          }
+        }
+        // フルデータならここに数十ポリゴンを追加（後述）
+      ]
+    };
+
+    let map, marker, lastKnownPosition;
+
+    function initMap() {
+      map = new google.maps.Map(document.getElementById("map"), {
+        zoom: 12,
+        center: { lat: 34.87, lng: 134.38 }, // 上郡中心
+        mapTypeId: "terrain",
+        disableDefaultUI: false,
+        gestureHandling: "greedy" // スマホでスムーズズーム
+      });
+
+      // 地質データ追加
+      map.data.addGeoJson(geologyData);
+      map.data.setStyle(feature => ({
+        fillColor: feature.getProperty("color"),
+        strokeWeight: 1,
+        strokeColor: "#000000"
+      }));
+
+      // 凡例生成
+      const legend = document.getElementById("legend");
+      legend.innerHTML = "<h3>上郡 地質凡例</h3>";
+      geologyData.features.forEach(feature => {
+        const div = document.createElement("div");
+        div.className = "legend-item";
+        div.innerHTML = `
+          <span class="legend-color" style="background: ${feature.properties.color};"></span>
+          ${feature.properties.name}
+        `;
+        legend.appendChild(div);
+      });
+
+      // 初回位置取得
+      getLocation();
+    }
+
+    function getLocation() {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const pos = {
+              lat: position.coords.latitude,
+              lng: position.coords.longitude
+            };
+            lastKnownPosition = pos;
+            updateMap(pos);
+          },
+          (error) => {
+            document.getElementById("info").innerText = "位置情報エラー: " + error.message;
+            // 上郡中心にフォールバック
+            updateMap({ lat: 34.87, lng: 134.38 });
+          },
+          { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+        );
+      } else {
+        document.getElementById("info").innerText = "Geolocation非対応";
+        updateMap({ lat: 34.87, lng: 134.38 });
+      }
+    }
+
+    function updateMap(pos) {
+      map.setCenter(pos);
+
+      if (!marker) {
+        marker = new google.maps.Marker({
+          position: pos,
+          map: map,
+          title: "現在地",
+          icon: { url: "http://maps.google.com/mapfiles/ms/icons/blue-dot.png" }
+        });
+      } else {
+        marker.setPosition(pos);
+      }
+
+      // 地質判定（高速化のため単純ループ）
+      let geology = { name: "不明", desc: "上郡範囲外", era: "N/A" };
+      geologyData.features.foroup다(feature => {
+        const coords = feature.geometry.coordinates[0];
+        const bounds = new google.maps.LatLngBounds();
+        coords.forEach(coord => bounds.extend({ lat: coord[1], lng: coord[0] }));
+        if (bounds.contains(pos)) {
+          geology = {
+            name: feature.properties.name,
+            desc: feature.properties.desc,
+            era: feature.properties.era
+          };
+        }
+      });
+      document.getElementById("info").innerText = 
+        `現在地: ${pos.lat.toFixed(4)}, ${pos.lng.toFixed(4)}\n` +
+        `地質: ${geology.name}\n説明: ${geology.desc}\n時代: ${geology.era}`;
+
+      // ローカルストレージにキャッシュ
+      localStorage.setItem("lastPosition", JSON.stringify(pos));
+      localStorage.setItem("lastGeology", JSON.stringify(geology));
+    }
+
+    function refreshLocation() {
+      getLocation();
+    }
+
+    // オフライン時のフォールバック
+    window.addEventListener("load", () => {
+      if (!navigator.onLine && localStorage.getItem("lastPosition")) {
+        const pos = JSON.parse(localStorage.getItem("lastPosition"));
+        const geology = JSON.parse(localStorage.getItem("lastGeology"));
+        updateMap(pos);
+        document.getElementById("info").innerText += "\n(オフラインキャッシュ使用)";
+      }
+    });
+  </script>
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyC43e5KVYktzDMcMcHqKKn6BnLQAyEAG38&callback=initMap" async defer></script>
+</body>
+</html>
